@@ -1,0 +1,25 @@
+void turnLeft() {
+    digitalWrite(rightIN1, HIGH);
+    digitalWrite(rightIN2, LOW);
+    digitalWrite(leftIN3, LOW);
+    digitalWrite(leftIN4, HIGH);
+    ledcWrite(pwmChannelRight, dutyCycle);
+    ledcWrite(pwmChannelLeft, dutyCycle);
+    Serial.println("↪️ Trái");
+    client.publish("robot/movement", "Turning left");
+    currentState = "left";
+    lastTurnDirection = "left";
+}
+
+void turnRight() {
+    digitalWrite(rightIN1, LOW);
+    digitalWrite(rightIN2, HIGH);
+    digitalWrite(leftIN3, HIGH);
+    digitalWrite(leftIN4, LOW); 
+    ledcWrite(pwmChannelRight, dutyCycle);
+    ledcWrite(pwmChannelLeft, dutyCycle);
+    Serial.println("↩️ Phải");
+    client.publish("robot/movement", "Turning right");
+    currentState = "right";
+    lastTurnDirection = "right";
+}
