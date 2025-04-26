@@ -22,26 +22,23 @@ const int freq = 1000;
 const int pwmChannelRight = 0;
 const int pwmChannelLeft = 1;
 const int resolution = 8;
-int dutyCycle = 200;
+int dutyCycle = 180;
 
 String mqttCommand = "";
 String currentState = "stop"; // Biến lưu trạng thái hiện tại
 
 // ====== Encoder setup ======
 const int encoderPin = 18;  // Chân kết nối encoder
-volatile long encoderCount = 0;
-unsigned long lastPublishTime = 0;
-const unsigned long publishInterval = 500; // Giảm xuống 500ms để cập nhật thường xuyên hơn
+volatile int encoderCount = 0;
+unsigned int lastPublishTime = 0;
+// const unsigned long publishInterval = 1000; // 1 giây
 const int pulsesPerRotation = 20; // Điều chỉnh thông số này theo encoder của bạn
 
 // ====== Auto Movement Control ======
 bool autoModeEnabled = false;
 int autoModeStep = 0;
-long targetEncoderCount = 0;
-long startEncoderCount = 0;
-unsigned long stateChangeTime = 0;
-const unsigned long pauseDuration = 1000; // Thời gian dừng giữa các bước (1 giây)
-bool inPauseState = false;
+int targetEncoderCount = 0;
+int startEncoderCount = 0;
 
 // Hàm ngắt đếm xung encoder
 void IRAM_ATTR encoderISR() {
@@ -130,7 +127,6 @@ void setSpeed(int speed) {
 void startAutoMode() {
   autoModeEnabled = true;
   autoModeStep = 0;
-  inPauseState = false;
   
   Serial.println("🤖 Chế độ tự hành được kích hoạt");
   
@@ -145,65 +141,49 @@ void startAutoMode() {
   client.publish("mpu6050/status", "Auto mode activated - Step 1: Moving forward 20 steps");
 }
 
-// Kiểm tra và điều chỉnh quá trình tự động di chuyển - cơ chế không chặn
+// Kiểm tra và điều chỉnh quá trình tự động di chuyển
 void checkAutoMode() {
   if (!autoModeEnabled) return;
   
-  unsigned long currentTime = millis();
-  long currentCount = encoderCount;
+  int currentCount = encoderCount;
   
-  // Kiểm tra xem có đang trong trạng thái dừng không
-  if (inPauseState) {
-    if (currentTime - stateChangeTime >= pauseDuration) {
-      inPauseState = false;
-      
-      // Chuyển sang bước tiếp theo sau khi dừng xong
-      if (autoModeStep == 1) {
-        // Bắt đầu bước 2: quay trái 10 bước
-        autoModeStep = 2;
-        startEncoderCount = currentCount;
-        targetEncoderCount = startEncoderCount + 10;
-        turnLeft();
-        
-        Serial.println("🤖 Bắt đầu bước 2 - Quay trái 10 bước");
-        client.publish("mpu6050/status", "Step 2: Turning left 10 steps");
-      }
-      else if (autoModeStep == 2) {
-        // Bắt đầu bước 3: đi thẳng 20 bước
-        autoModeStep = 3;
-        startEncoderCount = currentCount;
-        targetEncoderCount = startEncoderCount + 20;
-        moveForward();
-        
-        Serial.println("🤖 Bắt đầu bước 3 - Đi thẳng 20 bước");
-        client.publish("mpu6050/status", "Step 3: Moving forward 20 steps");
-      }
-    }
-    // Nếu đang trong trạng thái dừng, không làm gì thêm
-    return;
-  }
-  
-  // Kiểm tra từng bước nếu không trong trạng thái dừng
   switch(autoModeStep) {
     case 1: // Đi thẳng 20 bước
       if (currentCount >= targetEncoderCount) {
         stop();
-        stateChangeTime = currentTime;
-        inPauseState = true;
+        
+        // Chuyển sang bước tiếp: quay trái 10 bước
+        autoModeStep = 2;
+        startEncoderCount = currentCount;
+        targetEncoderCount = startEncoderCount + 17;
+        turnLeft();
         
         Serial.println("🤖 Hoàn thành bước 1 - Đi thẳng 20 bước");
-        Serial.println("🤖 Đang dừng 1 giây");
+        Serial.println("🤖 Bắt đầu bước 2 - Quay trái 10 bước");
+        
+        // Thêm thông tin encoder vào thông báo
+        char statusMsg[50];
+        sprintf(statusMsg, "Step 2: Turning left 10 steps (Encoder: %ld)", encoderCount);
+        client.publish("mpu6050/status", statusMsg);
       }
       break;
       
     case 2: // Quay trái 10 bước
       if (currentCount >= targetEncoderCount) {
-        stop();
-        stateChangeTime = currentTime;
-        inPauseState = true;
+        stop();        
+        // Chuyển sang bước tiếp: đi thẳng 20 bước
+        autoModeStep = 3;
+        startEncoderCount = currentCount;
+        targetEncoderCount = startEncoderCount + 20;
+        moveForward();
         
         Serial.println("🤖 Hoàn thành bước 2 - Quay trái 10 bước");
-        Serial.println("🤖 Đang dừng 1 giây");
+        Serial.println("🤖 Bắt đầu bước 3 - Đi thẳng 20 bước");
+        
+        // Thêm thông tin encoder vào thông báo
+        char statusMsg[50];
+        sprintf(statusMsg, "Step 3: Moving forward 20 steps (Encoder: %ld)", encoderCount);
+        client.publish("mpu6050/status", statusMsg);
       }
       break;
       
@@ -217,7 +197,11 @@ void checkAutoMode() {
         
         Serial.println("🤖 Hoàn thành bước 3 - Đi thẳng 20 bước");
         Serial.println("🤖 Chế độ tự hành hoàn tất");
-        client.publish("mpu6050/status", "Auto mode completed");
+        
+        // Thêm thông tin encoder vào thông báo
+        char statusMsg[50];
+        sprintf(statusMsg, "Auto mode completed (Final Encoder: %ld)", encoderCount);
+        client.publish("mpu6050/status", statusMsg);
       }
       break;
   }
@@ -270,31 +254,6 @@ void reconnect() {
   }
 }
 
-// Hàm tính toán và gửi tổng số vòng quay - sửa đổi để đảm bảo gửi liên tục
-void publishTotalRotations() {
-  unsigned long currentTime = millis();
-  
-  if (currentTime - lastPublishTime >= publishInterval) {
-    // Lưu thời điểm gửi ngay tại đây
-    lastPublishTime = currentTime;
-    
-    // Sao chép giá trị encoderCount để tránh thay đổi trong quá trình gửi
-    long currentEncoderCount = encoderCount;
-    
-    // Chuyển thành chuỗi để gửi MQTT
-    char rotationStr[10];
-    dtostrf(currentEncoderCount, 2, 0, rotationStr);
-    
-    // In ra Serial trước khi gửi MQTT
-    Serial.print("📊 Tổng số encoder: ");
-    Serial.println(currentEncoderCount);
-    
-    // Gửi dữ liệu encoder ngay lập tức nếu đã kết nối
-    if (client.connected()) {
-      client.publish("mpu6050/vongquay", rotationStr);
-    }
-  }
-}
 
 // ====== Setup & Loop ======
 void setup() {
@@ -325,7 +284,6 @@ void setup() {
 }
 
 void loop() {
-  // Đảm bảo kết nối MQTT
   if (!client.connected()) {
     reconnect();
   }
@@ -369,7 +327,5 @@ void loop() {
   // Kiểm tra và cập nhật chế độ tự hành nếu được kích hoạt
   checkAutoMode();
 
-  // Gửi tổng số vòng quay - được gọi thường xuyên trong loop
-  publishTotalRotations();
 
 }
