@@ -190,10 +190,10 @@ void moveBackward() {
 }
 
 void turnLeft() {
-    digitalWrite(rightIN1, HIGH);
-    digitalWrite(rightIN2, LOW);
-    digitalWrite(leftIN3, LOW);
-    digitalWrite(leftIN4, HIGH);
+    digitalWrite(rightIN1, LOW);
+    digitalWrite(rightIN2, HIGH);
+    digitalWrite(leftIN3, HIGH);
+    digitalWrite(leftIN4, LOW); 
     ledcWrite(pwmChannelRight, dutyCycle);
     ledcWrite(pwmChannelLeft, dutyCycle);
     Serial.println("↪️ Trái");
@@ -203,10 +203,10 @@ void turnLeft() {
 }
 
 void turnRight() {
-    digitalWrite(rightIN1, LOW);
-    digitalWrite(rightIN2, HIGH);
-    digitalWrite(leftIN3, HIGH);
-    digitalWrite(leftIN4, LOW); 
+    digitalWrite(rightIN1, HIGH);
+    digitalWrite(rightIN2, LOW);
+    digitalWrite(leftIN3, LOW);
+    digitalWrite(leftIN4, HIGH);
     ledcWrite(pwmChannelRight, dutyCycle);
     ledcWrite(pwmChannelLeft, dutyCycle);
     Serial.println("↩️ Phải");
