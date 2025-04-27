@@ -40,6 +40,23 @@ const int MAP_SIZE = 10;
 const int ENCODER_STEPS_PER_CELL = 30;
 const float ENCODER_STEPS_PER_TURN = 17;  // Estimated from your code
 
+// Add these global variables to your code
+bool isDrawingShape = false;
+String shapeCommand = "";
+int shapeSteps = 0;
+int shapeTotalSteps = 0;
+int startDrawingCount = 0;
+
+// Enum for shape drawing states
+enum ShapeState {
+  SHAPE_IDLE,
+  SHAPE_MOVING,
+  SHAPE_TURNING,
+  SHAPE_FINISHED
+};
+
+ShapeState shapeState = SHAPE_IDLE;
+
 // Directions
 enum Direction { NORTH = 0, EAST = 1, SOUTH = 2, WEST = 3 };
 
@@ -689,47 +706,62 @@ void processNavigateCommand(String cmd) {
 
 
 void callback(char* topic, byte* payload, unsigned int length) {
-  String msg = "";
-  for (unsigned int i = 0; i < length; i++) {
-      msg += (char)payload[i];
+    String msg = "";
+    for (unsigned int i = 0; i < length; i++) {
+        msg += (char)payload[i];
+    }
+  
+    Serial.print("📩 Nhận từ topic [");
+    Serial.print(topic);
+    Serial.print("]: ");
+    Serial.println(msg);
+  
+    if (String(topic) == "mpu6050/alert") {
+        // Check for shape commands
+        if (msg == "CIRCLE") {
+            // Stop any ongoing movement
+            stop();
+            navigationActive = false;
+            
+            // Start circle drawing
+            isDrawingShape = true;
+            shapeCommand = "CIRCLE";
+            startDrawingCount = encoderCount;
+            targetEncoderCount = startDrawingCount + 74; // 74 encoder counts for circle
+            shapeState = SHAPE_MOVING;
+            
+            // Move right to draw circle
+            moveRight();
+            Serial.println("🔵 Drawing Circle");
+            client.publish("robot/status", "Drawing Circle");
+        }
+        else if (msg == "RECTANGLE") {
+            // Stop any ongoing movement
+            stop();
+            navigationActive = false;
+            
+            // Start rectangle drawing
+            isDrawingShape = true;
+            shapeCommand = "RECTANGLE";
+            shapeSteps = 0;
+            shapeTotalSteps = 8; // 4 movements + 4 turns
+            startDrawingCount = encoderCount;
+            targetEncoderCount = startDrawingCount + 30; // 30 encoder counts for each side
+            shapeState = SHAPE_MOVING;
+            
+            // Start with forward movement
+            moveForward();
+            Serial.println("🟦 Drawing Rectangle - Side 1");
+            client.publish("robot/status", "Drawing Rectangle - Side 1");
+        }
+        else {
+            // Handle other MQTT commands as before
+            mqttCommand = msg;
+        }
+    }
   }
-
-  Serial.print("📩 Nhận từ topic [");
-  Serial.print(topic);
-  Serial.print("]: ");
-  Serial.println(msg);
-
-  if (String(topic) == "mpu6050/alert") {
-      // Nếu có lệnh navigate mới, reset các biến liên quan
-      if (msg.startsWith("navigate") && mqttCommand.startsWith("navigate")) {
-          // Reset các biến điều hướng nhưng giữ nguyên hướng hiện tại của robot
-          path.clear();
-          currentPathIndex = 0;
-          pathFound = false;
-          navigationActive = false;
-          navState = IDLE;
-          needSecondTurn = false;
-          
-          // Dừng robot trước khi thực hiện lệnh mới
-          stop();
-          
-          Serial.print("🔄 Nhận lệnh navigate mới, đang reset với hướng hiện tại: ");
-          debugDirection(robotDir);
-          Serial.println();
-          
-          String dirMsg = "New navigation command, keeping current direction: ";
-          switch(robotDir) {
-              case NORTH: dirMsg += "NORTH"; break;
-              case EAST: dirMsg += "EAST"; break;
-              case SOUTH: dirMsg += "SOUTH"; break;
-              case WEST: dirMsg += "WEST"; break;
-          }
-          client.publish("robot/status", dirMsg.c_str());
-      }
-      
-      mqttCommand = msg;
-  }
-}
+  
+  
 
 Direction getTargetDirection(int currentX, int currentY, int targetX, int targetY) {
     if (targetX > currentX) return EAST;
@@ -1047,6 +1079,95 @@ void setup() {
     printMenu();
 }
 
+void processShapeDrawing() {
+    if (!isDrawingShape) return;
+    
+    switch (shapeState) {
+      case SHAPE_MOVING:
+        // Check if the movement is complete
+        if (encoderCount >= targetEncoderCount) {
+          stop();
+          
+          if (shapeCommand == "CIRCLE") {
+            // Circle is complete
+            isDrawingShape = false;
+            shapeState = SHAPE_FINISHED;
+            Serial.println("🔵 Circle Drawing Complete");
+            client.publish("robot/status", "Circle Drawing Complete");
+          }
+          else if (shapeCommand == "RECTANGLE") {
+            shapeSteps++;
+            
+            if (shapeSteps >= shapeTotalSteps) {
+              // Rectangle is complete
+              isDrawingShape = false;
+              shapeState = SHAPE_FINISHED;
+              Serial.println("🟦 Rectangle Drawing Complete");
+              client.publish("robot/status", "Rectangle Drawing Complete");
+            }
+            else if (shapeSteps % 2 == 1) {
+              // After moving, turn 90 degrees
+              shapeState = SHAPE_TURNING;
+              startDrawingCount = encoderCount;
+              targetEncoderCount = startDrawingCount + ENCODER_STEPS_PER_TURN;
+              turnRight();
+              Serial.print("🟦 Rectangle Turn - Step ");
+              Serial.println(shapeSteps + 1);
+              String statusMsg = "Rectangle Turn - Step " + String(shapeSteps + 1);
+              client.publish("robot/status", statusMsg.c_str());
+            }
+            else {
+              // After turning, move forward
+              shapeState = SHAPE_MOVING;
+              startDrawingCount = encoderCount;
+              targetEncoderCount = startDrawingCount + 30;
+              moveForward();
+              Serial.print("🟦 Rectangle Side - Step ");
+              Serial.println(shapeSteps + 1);
+              String sideMsg = "Rectangle Side - Step " + String(shapeSteps + 1);
+              client.publish("robot/status", sideMsg.c_str());
+            }
+          }
+        }
+        break;
+        
+      case SHAPE_TURNING:
+        // Check if turning is complete
+        if (encoderCount >= targetEncoderCount) {
+          stop();
+          shapeSteps++;
+          
+          if (shapeSteps >= shapeTotalSteps) {
+            // Rectangle is complete
+            isDrawingShape = false;
+            shapeState = SHAPE_FINISHED;
+            Serial.println("🟦 Rectangle Drawing Complete");
+            client.publish("robot/status", "Rectangle Drawing Complete");
+          }
+          else {
+            // After turning, move forward
+            shapeState = SHAPE_MOVING;
+            startDrawingCount = encoderCount;
+            targetEncoderCount = startDrawingCount + 30;
+            moveForward();
+            Serial.print("🟦 Rectangle Side - Step ");
+            Serial.println(shapeSteps + 1);
+            // client.publish("robot/status", "Rectangle Side - Step " + String(shapeSteps + 1));
+          }
+        }
+        break;
+        
+      case SHAPE_FINISHED:
+        // Reset shape drawing state
+        isDrawingShape = false;
+        shapeState = SHAPE_IDLE;
+        break;
+        
+      default:
+        break;
+    }
+  }
+
 // Cập nhật trong hàm loop hoặc callback để xử lý lệnh navigate
 void processMqttCommand(String cmd) {
   cmd.toLowerCase();
@@ -1080,22 +1201,28 @@ void processMqttCommand(String cmd) {
 }
 
 void loop() {
-  if (!client.connected()) {
-      reconnect();
-  }
-  client.loop();
-
-  // Process commands
-  if (mqttCommand.length() > 0) {
-      String cmd = mqttCommand;
-      mqttCommand = "";
-      
-      // Thay vì xử lý cmd trực tiếp ở đây, gọi hàm processMqttCommand
-      processMqttCommand(cmd);
-  }
+    if (!client.connected()) {
+        reconnect();
+    }
+    client.loop();
   
-  // Auto navigation process
-  if (navigationActive) {
-      navigateToNextCell();
+    // Process commands
+    if (mqttCommand.length() > 0) {
+        String cmd = mqttCommand;
+        mqttCommand = "";
+        
+        // Skip processing MQTT commands when drawing shapes
+        if (!isDrawingShape) {
+            processMqttCommand(cmd);
+        }
+    }
+    
+    // Process shape drawing (has priority over navigation)
+    if (isDrawingShape) {
+        processShapeDrawing();
+    }
+    // Auto navigation process (only when not drawing shapes)
+    else if (navigationActive) {
+        navigateToNextCell();
+    }
   }
-}
