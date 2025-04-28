@@ -249,8 +249,8 @@ void moveRight() {
     digitalWrite(rightIN2, HIGH);
     digitalWrite(leftIN3, LOW);
     digitalWrite(leftIN4, HIGH);
-    ledcWrite(pwmChannelRight, dutyCycle / 2);
-    ledcWrite(pwmChannelLeft, dutyCycle);
+    ledcWrite(pwmChannelRight, 100);
+    ledcWrite(pwmChannelLeft, 120);
     Serial.println("➡️ Dịch phải");
     client.publish("robot/movement", "Moving right");
     currentState = "move_right";
@@ -731,7 +731,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
             shapeState = SHAPE_MOVING;
             
             // Move right to draw circle
-            moveRight();
+            turnRight();
             Serial.println("🔵 Drawing Circle");
             client.publish("robot/status", "Drawing Circle");
         }
